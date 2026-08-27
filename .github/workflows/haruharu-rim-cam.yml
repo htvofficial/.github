@@ -1,0 +1,99 @@
+name: HaruharuRIM CAM
+
+on:
+  push:
+    paths:
+      - 'sourcecode/**/*.js'
+      - 'sourcecodes/**/*.js'
+      - 'modelup/**/*.json'
+      - 'scripts/train_haruharu_rim_cam.py'
+      - 'cpp/haruharu_rim_cam_generate.cpp'
+      - '.github/workflows/haruharu-rim-cam.yml'
+  workflow_dispatch:
+    inputs:
+      generation_prompt:
+        description: 'HaruharuRIM CAMに作らせたいコードの説明（例: Ajaxで団体検索するコード作って）'
+        required: true
+        default: 'それっぽいJavaScriptコードを作って'
+      model_path:
+        description: '利用するアップロード済みモデルJSONのパス'
+        required: false
+        default: 'modelup/haruharu-rim-cam-weights.json'
+
+jobs:
+  train-code-automation-model:
+    name: Train Code Automation Model
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Train HaruharuRIM CAM weights
+        run: |
+          python scripts/train_haruharu_rim_cam.py \
+            --source-dir "$([ -d sourcecode ] && echo sourcecode || echo sourcecodes)" \
+            --output-dir artifacts/haruharu-rim-cam
+
+      - name: Upload HaruharuRIM CAM training artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: haruharu-rim-cam-weights
+          path: artifacts/haruharu-rim-cam/
+          if-no-files-found: error
+
+  generate-code-from-uploaded-model:
+    name: Generate Code From Uploaded Model
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build local HaruharuRIM CAM generator
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -pedantic \
+            cpp/haruharu_rim_cam_generate.cpp \
+            -o haruharu-rim-cam-generate
+
+      - name: Prepare model path
+        id: model
+        env:
+          REQUESTED_MODEL_PATH: ${{ inputs.model_path }}
+        run: |
+          MODEL_PATH="$REQUESTED_MODEL_PATH"
+          if [ ! -f "$MODEL_PATH" ]; then
+            echo "Requested model '$MODEL_PATH' was not found; training a temporary local model instead." >&2
+            python scripts/train_haruharu_rim_cam.py \
+              --source-dir "$([ -d sourcecode ] && echo sourcecode || echo sourcecodes)" \
+              --output-dir modelup
+            MODEL_PATH='modelup/haruharu-rim-cam-weights.json'
+          fi
+          echo "path=$MODEL_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Generate requested code locally
+        env:
+          CAM_MODEL_PATH: ${{ steps.model.outputs.path }}
+          CAM_PROMPT: ${{ inputs.generation_prompt }}
+        run: |
+          ./haruharu-rim-cam-generate \
+            "$CAM_MODEL_PATH" \
+            "$CAM_PROMPT" \
+            generated/haruharu-rim-cam-output.js
+
+      - name: Upload generated code
+        uses: actions/upload-artifact@v4
+        with:
+          name: haruharu-rim-cam-generated-code
+          path: generated/haruharu-rim-cam-output.js
+          if-no-files-found: error
