@@ -1,0 +1,39 @@
+name: HaruharuRIM CAM
+
+on:
+  push:
+    paths:
+      - 'sourcecode/**/*.js'
+      - 'sourcecodes/**/*.js'
+      - 'scripts/train_haruharu_rim_cam.py'
+      - '.github/workflows/haruharu-rim-cam.yml'
+  workflow_dispatch:
+
+jobs:
+  train-code-automation-model:
+    name: Train Code Automation Model
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Train HaruharuRIM CAM weights
+        run: |
+          python scripts/train_haruharu_rim_cam.py \
+            --source-dir "$([ -d sourcecode ] && echo sourcecode || echo sourcecodes)" \
+            --output-dir artifacts/haruharu-rim-cam
+
+      - name: Upload HaruharuRIM CAM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: haruharu-rim-cam-weights
+          path: artifacts/haruharu-rim-cam/
+          if-no-files-found: error
